@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tempahan Bilik ICT</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    .calendar-container {
+      margin-bottom: 20px;
+    }
+    #booking-list {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <section id="banner" class="bg-primary text-white text-center p-5 position-relative">
+    <h1>Tempahan Bilik ICT</h1>
+    <p id="banner-text">Selamat datang ke sistem tempahan bilik ICT kami!</p>
+  </section>
+  <div class="container my-5">
+    <div class="mb-3">
+      <button id="show-form-btn" class="btn btn-primary me-2">📝 Buat Tempahan</button>
+      <button id="show-list-btn" class="btn btn-secondary">📋 Lihat Senarai Tempahan</button>
+    </div>
+
+    <!-- Form Tempahan -->
+    <div id="booking-form-container">
+      <h2>Tempah Bilik ICT</h2>
+      <div class="calendar-container">
+        <h4>Kalendar Hari Ini</h4>
+        <div id="today-calendar"></div>
+      </div>
+      <form id="booking-form">
+        <div class="mb-3">
+          <label for="name" class="form-label">Nama</label>
+          <input type="text" class="form-control" id="name" required />
+        </div>
+        <div class="mb-3">
+          <label for="class" class="form-label">Kelas</label>
+          <input type="text" class="form-control" id="class" required />
+        </div>
+        <div class="mb-3">
+          <label for="date" class="form-label">Tarikh Penggunaan</label>
+          <input type="date" class="form-control" id="date" required />
+          <div id="selected-date-info" class="alert alert-info mt-2 d-none"></div>
+          <small class="form-text text-muted">
+            <b>Nota:</b> Anda hanya boleh membuat tempahan untuk tarikh penggunaan antara 2 hingga 7 hari dari hari ini.<br>
+            Tempahan tidak dibenarkan pada hari penggunaan atau sehari sebelum hari penggunaan.
+          </small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Waktu</label>
+          <div class="row">
+            <div class="col-md-6">
+              <label for="start-time" class="form-label">Mula</label>
+              <select class="form-control" id="start-time" required>
+                <option value="">Pilih masa mula</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label for="end-time" class="form-label">Tamat</label>
+              <select class="form-control" id="end-time" required>
+                <option value="">Pilih masa tamat</option>
+              </select>
+            </div>
+          </div>
+          <small class="form-text text-muted">Masa tamat mesti selepas masa mula</small>
+        </div>
+        <div class="mb-3">
+          <label for="purpose" class="form-label">Tujuan Penggunaan</label>
+          <textarea class="form-control" id="purpose" rows="3"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Hantar Tempahan</button>
+      </form>
+    </div>
+
+    <!-- Senarai Tempahan -->
+    <div id="booking-list">
+      <h2>📋 Senarai Tempahan</h2>
+      <p class="text-muted">Berikut adalah senarai semua tempahan yang telah dibuat.</p>
+      <table class="table table-bordered table-striped">
+        <thead class="table-primary">
+          <tr>
+            <th>Nama</th>
+            <th>Kelas</th>
+            <th>Tarikh</th>
+            <th>Masa</th>
+            <th>Tujuan</th>
+            <th>Tarikh Tempahan</th>
+            <th>Tindakan</th>
+          </tr>
+        </thead>
+        <tbody id="booking-table-body">
+          <!-- Tempahan akan dimasukkan melalui JavaScript -->
+        </tbody>
+      </table>
+      <button id="download-btn" class="btn btn-success">💾 Muat Turun Excel</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+  <script>
+    // Masa pilihan
+    const timeOptions = [
+      "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+      "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30",
+      "16:00", "16:30", "17:00", "17:30"
+    ];
+
+    // Populate dropdown masa
+    function populateTimeOptions() {
+      const startSelect = document.getElementById("start-time");
+      const endSelect = document.getElementById("end-time");
+      timeOptions.forEach(time => {
+        startSelect.innerHTML += `<option value="${time}">${time}</option>`;
+        endSelect.innerHTML += `<option value="${time}">${time}</option>`;
+      });
+    }
+
+    // Bersihkan disabled dan teks pada option
+    function cleanOptions(selectElement) {
+      Array.from(selectElement.options).forEach(option => {
+        option.disabled = false;
+        option.text = option.text.replace(/^❌\s/, '').replace(/\s\(Ditempah\)$/, '');
+      });
+    }
+
+    // Disable slot masa yang sudah ditempah
+    function disableBookedSlots() {
+      const selectedDate = document.getElementById("date").value;
+      const startTimeSelect = document.getElementById("start-time");
+      const endTimeSelect = document.getElementById("end-time");
+      cleanOptions(startTimeSelect);
+      cleanOptions(endTimeSelect);
+      const allBookings = JSON.parse(localStorage.getItem("bookings")) || [];
+      const now = new Date();
+      allBookings.forEach(slot => {
+        if (slot.date === selectedDate) {
+          const slotEndTime = new Date(`${slot.date}T${slot.endTime}`);
+          if (now > slotEndTime) {
+            // Lepas masa tamat, jangan disable
+            Array.from(startTimeSelect.options).forEach(option => {
+              if (option.value >= slot.startTime && option.value < slot.endTime) {
+                option.disabled = false;
+                option.text = option.text.replace(/^❌\s/, '').replace(/\s\(Ditempah\)$/, '');
+              }
+            });
+            Array.from(endTimeSelect.options).forEach(option => {
+              if (option.value > slot.startTime && option.value <= slot.endTime) {
+                option.disabled = false;
+                option.text = option.text.replace(/^❌\s/, '').replace(/\s\(Ditempah\)$/, '');
+              }
+            });
+          } else {
+            // Disable slot yang ditempah
+            Array.from(startTimeSelect.options).forEach(option => {
+              if (option.value >= slot.startTime && option.value < slot.endTime) {
+                option.disabled = true;
+                option.text = `❌ ${option.text} (Ditempah)`;
+              }
+            });
+            Array.from(endTimeSelect.options).forEach(option => {
+              if (option.value > slot.startTime && option.value <= slot.endTime) {
+                option.disabled = true;
+                option.text = `❌ ${option.text} (Ditempah)`;
+              }
+            });
+          }
+        }
+      });
+    }
+
+    // Render senarai tempahan ke dalam jadual
+    function renderTable() {
+      const bookings = JSON.parse(localStorage.getItem("bookings")) || [];
+      const tbody = document.getElementById("booking-table-body");
+      const todayInfo = localStorage.getItem("todayInfo") || 'Tiada maklumat tarikh tempahan';
+      tbody.innerHTML = "";
+      bookings.forEach((b, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${b.name}</td>
+          <td>${b.class}</td>
+          <td>${b.date}</td>
+          <td>${b.startTime} - ${b.endTime}</td>
+          <td>${b.purpose || 'Tidak dinyatakan'}</td>
+          <td>${todayInfo}</td>
+          <td>
+            <button class="btn btn-sm btn-warning me-1" onclick="editBooking(${index})">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteBooking(${index})">Padam</button>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Edit tempahan
+    function editBooking(index) {
+      const bookings = JSON.parse(localStorage.getItem("bookings")) || [];
+      const booking = bookings[index];
+      localStorage.setItem("currentBooking", JSON.stringify(booking));
+      showForm();
+      fillForm(booking);
+    }
+
+    // Padam tempahan
+    function deleteBooking(index) {
+      if (confirm("Padam tempahan ini?")) {
+        const bookings = JSON.parse(localStorage.getItem("bookings")) || [];
+        bookings.splice(index, 1);
+        localStorage.setItem("bookings", JSON.stringify(bookings));
+        renderTable();
+      }
+    }
+
+    // Isi form dengan data tempahan untuk edit
+    function fillForm(booking) {
+      document.getElementById("name").value = booking.name;
+      document.getElementById("class").value = booking.class;
+      document.getElementById("date").value = booking.date;
+      document.getElementById("start-time").value = booking.startTime;
+      document.getElementById("end-time").value = booking.endTime;
+      document.getElementById("purpose").value = booking.purpose;
+      disableBookedSlots();
+      document.getElementById("start-time").dispatchEvent(new Event("change"));
+    }
+
+    // Export ke Excel
+    function exportToExcel() {
+      const bookings = JSON.parse(localStorage.getItem("bookings")) || [];
+      const todayInfo = localStorage.getItem("todayInfo") || 'Tiada maklumat tarikh tempahan';
+      const ws = XLSX.utils.json_to_sheet(bookings.map(b => ({
+        Nama: b.name,
+        Kelas: b.class,
+        Tarikh: b.date,
+        Masa: `${b.startTime} - ${b.endTime}`,
+        Tujuan: b.purpose || 'Tidak dinyatakan',
+        TarikhTempahan: todayInfo
+      })));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Tempahan");
+      XLSX.writeFile(wb, "Tempahan.xlsx");
+    }
+
+    // Papar kalendar hari ini
+    function showTodayCalendar() {
+      const today = new Date();
+      const dayNames = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
+      const dayName = dayNames[today.getDay()];
+      const todayInfo = `🗓️ <strong>${dayName}</strong>, ${today.toLocaleDateString("ms-MY", {
+        day: "numeric", month: "long", year: "numeric"
+      })}`;
+      document.getElementById("today-calendar").innerHTML = `<p>${todayInfo}</p>`;
+      localStorage.setItem("todayInfo", todayInfo);
+    }
+
+    // Tukar paparan antara form dan senarai
+    function showForm() {
+      document.getElementById("booking-form-container").style.display = "block";
+      document.getElementById("booking-list").style.display = "none";
+    }
+
+    function showList() {
+      document.getElementById("booking-form-container").style.display = "none";
+      document.getElementById("booking-list").style.display = "block";
+      renderTable();
+    }
+
+    // Event listeners untuk butang
+    document.getElementById("show-form-btn").addEventListener("click", () => {
+      showForm();
+    });
+    document.getElementById("show-list-btn").addEventListener("click", () => {
+      showList();
+    });
+
+    // Event untuk update pilihan masa tamat selepas pilih masa mula
+    document.getElementById("start-time").addEventListener("change", function () {
+      const startIndex = timeOptions.indexOf(this.value);
+      const endSelect = document.getElementById("end-time");
+      endSelect.value = "";
+      Array.from(endSelect.options).forEach((option, i) => {
+        option.disabled = i === 0 || timeOptions.indexOf(option.value) <= startIndex;
+      });
+    });
+
+    // Event untuk update disable slot masa selepas pilih tarikh
+    document.getElementById("date").addEventListener("change", function () {
+      disableBookedSlots();
+      const dayNames = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
+      const selectedDate = new Date(this.value + "T00:00:00");
+      const dayName = dayNames[selectedDate.getDay()];
+      const infoDiv = document.getElementById("selected-date-info");
+      infoDiv.classList.remove("d-none");
+      infoDiv.innerHTML = `🗓️ <strong>${dayName}</strong>, ${selectedDate.toLocaleDateString("ms-MY", {
+        day: "numeric", month: "long", year: "numeric"
+      })}`;
+    });
+
+    // Submit form tempahan
+    document.getElementById("booking-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const bookingDate = document.getElementById("date").value;
+      const dateInput = document.getElementById("date");
+
+      // Validasi tarikh penggunaan dalam julat yang dibenarkan
+      if (bookingDate < dateInput.min || bookingDate > dateInput.max) {
+        return alert(`Tempahan hanya boleh dibuat untuk tarikh penggunaan antara ${dateInput.min} hingga ${dateInput.max}`);
+      }
+
+      const booking = {
+        name: document.getElementById("name").value,
+        class: document.getElementById("class").value,
+        date: bookingDate,
+        startTime: document.getElementById("start-time").value,
+        endTime: document.getElementById("end-time").value,
+        purpose: document.getElementById("purpose").value
+      };
+
+      if (booking.startTime >= booking.endTime) return alert("Masa tamat mesti selepas masa mula!");
+
+      let bookings = JSON.parse(localStorage.getItem("bookings")) || [];
+
+      // Jika sedang edit, kemaskini tempahan lama
+      const currentBooking = JSON.parse(localStorage.getItem("currentBooking"));
+      if (currentBooking) {
+        const index = bookings.findIndex(b => 
+          b.name === currentBooking.name &&
+          b.class === currentBooking.class &&
+          b.date === currentBooking.date &&
+          b.startTime === currentBooking.startTime &&
+          b.endTime === currentBooking.endTime
+        );
+        if (index !== -1) {
+          bookings[index] = booking;
+        } else {
+          bookings.push(booking);
+        }
+        localStorage.removeItem("currentBooking");
+      } else {
+        bookings.push(booking);
+      }
+
+      localStorage.setItem("bookings", JSON.stringify(bookings));
+      alert("Tempahan anda telah dihantar!");
+
+      // Reset form dan paparkan semula form
+      this.reset();
+      document.getElementById("selected-date-info").classList.add("d-none");
+      showForm();
+    });
+
+    // Muat turun Excel
+    document.getElementById("download-btn").addEventListener("click", exportToExcel);
+
+    // Inisialisasi halaman
+    window.onload = () => {
+      populateTimeOptions();
+
+      // Tetapkan min dan max untuk input tarikh penggunaan
+      const dateInput = document.getElementById("date");
+      const today = new Date();
+
+      // Tarikh penggunaan hanya boleh dipilih antara 2 hingga 7 hari dari hari ini
+      const minDate = new Date(today);
+      minDate.setDate(minDate.getDate() + 2);
+
+      const maxDate = new Date(today);
+      maxDate.setDate(maxDate.getDate() + 7);
+
+      dateInput.min = minDate.toISOString().split("T")[0];
+      dateInput.max = maxDate.toISOString().split("T")[0];
+
+      // Papar kalendar hari ini
+      showTodayCalendar();
+
+      // Jika ada tempahan sedang diedit, isi form dan paparkan form
+      const saved = JSON.parse(localStorage.getItem("currentBooking"));
+      if (saved) {
+        fillForm(saved);
+        showForm();
+      } else {
+        showForm();
+      }
+
+      // Kemas kini slot tempahan setiap 1 minit
+      setInterval(disableBookedSlots, 60000);
+    };
+  </script>
+</body>
+</html>
+(updateee!)
